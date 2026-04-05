@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Categorizer</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #f0f2f5;
+        color: #333;
+        padding: 20px;
+      }
+
+      h1 { text-align: center; margin-bottom: 6px; }
+
+      nav {
+        text-align: center;
+        margin-bottom: 20px;
+      }
+      nav a {
+        margin: 0 8px;
+        color: #4a6fa5;
+      }
+
+      .controls {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin-bottom: 20px;
+      }
+      .controls button, .controls input {
+        padding: 8px 14px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        font-size: 14px;
+      }
+      .controls button {
+        background: #4a6fa5;
+        color: #fff;
+        border: none;
+        cursor: pointer;
+      }
+      .controls button:hover { background: #3b5d8a; }
+
+      .board {
+        display: flex;
+        gap: 16px;
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+
+      .column {
+        background: #fff;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        min-width: 220px;
+        flex: 1;
+        max-width: 350px;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .column-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 14px;
+        font-weight: 600;
+        font-size: 15px;
+        border-bottom: 2px solid #e8e8e8;
+        background: #fafafa;
+        border-radius: 10px 10px 0 0;
+      }
+
+      .column-header .remove-col {
+        background: none;
+        border: none;
+        color: #999;
+        font-size: 18px;
+        cursor: pointer;
+        padding: 0 4px;
+        line-height: 1;
+      }
+      .column-header .remove-col:hover { color: #e55; }
+
+      .drop-zone {
+        min-height: 60px;
+        padding: 10px;
+        flex: 1;
+      }
+
+      .drop-zone.drag-over {
+        background: #e8f0fe;
+        border-radius: 0 0 10px 10px;
+      }
+
+      .card {
+        background: #f7f8fa;
+        border: 1px solid #e0e0e0;
+        border-radius: 6px;
+        padding: 10px 12px;
+        margin-bottom: 8px;
+        cursor: grab;
+        font-size: 14px;
+        transition: box-shadow 0.15s, opacity 0.15s;
+        user-select: none;
+      }
+      .card:active { cursor: grabbing; }
+      .card.dragging { opacity: 0.4; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+
+      #uncategorized { min-width: 260px; max-width: 400px; }
+      #uncategorized .column-header { background: #4a6fa5; color: #fff; }
+      #uncategorized .column-header .remove-col { display: none; }
+
+      .badge {
+        background: rgba(255,255,255,0.3);
+        border-radius: 10px;
+        padding: 1px 8px;
+        font-size: 12px;
+        margin-left: 6px;
+      }
+      .column:not(#uncategorized) .badge {
+        background: #e0e0e0;
+      }
+
+      @media (max-width: 600px) {
+        .board { flex-direction: column; }
+        .column, #uncategorized { max-width: 100%; min-width: 0; }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Drag &amp; Drop Categorizer</h1>
+    <nav>
+      <a href="index.html">Main</a>
+      <a href="page2.html">Page 2</a>
+    </nav>
+
+    <div class="controls">
+      <input type="text" id="names-input" placeholder="Enter names, comma separated…" style="flex: 1; min-width: 250px;" />
+      <button onclick="addNames()">+ Add Names</button>
+    </div>
+    <div class="controls">
+      <input type="text" id="group-name-input" placeholder="New group name…" />
+      <button onclick="addGroup()">+ Add Group</button>
+      <button onclick="resetAll()">Reset</button>
+      <button onclick="exportResults()">Export</button>
+    </div>
+
+    <div class="board" id="board">
+      <div class="column" id="uncategorized">
+        <div class="column-header">
+          Uncategorized <span class="badge" id="uncategorized-count">0</span>
+        </div>
+        <div class="drop-zone" data-group="uncategorized"></div>
+      </div>
+    </div>
+
+    <script>
+      // ── Name list (edit this array to set the names) ──
+      const NAMES = [
+        // Add names here, e.g.:
+        // "Alice", "Bob", "Charlie"
+      ];
+
+      // ── State ──
+      let draggedCard = null;
+
+      // ── Initialise ──
+      function init() {
+        const zone = document.querySelector('#uncategorized .drop-zone');
+        NAMES.forEach(name => {
+          zone.appendChild(createCard(name));
+        });
+        updateCounts();
+      }
+
+      // ── Card creation ──
+      function createCard(name) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.textContent = name;
+        card.draggable = true;
+        card.addEventListener('dragstart', onDragStart);
+        card.addEventListener('dragend', onDragEnd);
+        // Touch support
+        card.addEventListener('touchstart', onTouchStart, { passive: false });
+        card.addEventListener('touchmove', onTouchMove, { passive: false });
+        card.addEventListener('touchend', onTouchEnd);
+        return card;
+      }
+
+      // ── Drag & drop (mouse) ──
+      function onDragStart(e) {
+        draggedCard = e.target;
+        e.target.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+      }
+      function onDragEnd(e) {
+        e.target.classList.remove('dragging');
+        draggedCard = null;
+        clearHighlights();
+        updateCounts();
+      }
+
+      document.addEventListener('dragover', e => {
+        e.preventDefault();
+        const zone = e.target.closest('.drop-zone');
+        clearHighlights();
+        if (zone) zone.classList.add('drag-over');
+      });
+      document.addEventListener('drop', e => {
+        e.preventDefault();
+        const zone = e.target.closest('.drop-zone');
+        if (zone && draggedCard) {
+          zone.appendChild(draggedCard);
+        }
+        clearHighlights();
+        updateCounts();
+      });
+
+      // ── Touch support ──
+      let touchClone = null;
+      let touchOriginZone = null;
+
+      function onTouchStart(e) {
+        draggedCard = e.target;
+        touchOriginZone = draggedCard.parentElement;
+        draggedCard.classList.add('dragging');
+
+        touchClone = draggedCard.cloneNode(true);
+        touchClone.style.position = 'fixed';
+        touchClone.style.pointerEvents = 'none';
+        touchClone.style.zIndex = '9999';
+        touchClone.style.opacity = '0.8';
+        touchClone.style.width = draggedCard.offsetWidth + 'px';
+        document.body.appendChild(touchClone);
+
+        const touch = e.touches[0];
+        touchClone.style.left = touch.clientX - touchClone.offsetWidth / 2 + 'px';
+        touchClone.style.top = touch.clientY - touchClone.offsetHeight / 2 + 'px';
+        e.preventDefault();
+      }
+
+      function onTouchMove(e) {
+        if (!touchClone) return;
+        const touch = e.touches[0];
+        touchClone.style.left = touch.clientX - touchClone.offsetWidth / 2 + 'px';
+        touchClone.style.top = touch.clientY - touchClone.offsetHeight / 2 + 'px';
+
+        clearHighlights();
+        const el = document.elementFromPoint(touch.clientX, touch.clientY);
+        if (el) {
+          const zone = el.closest('.drop-zone');
+          if (zone) zone.classList.add('drag-over');
+        }
+        e.preventDefault();
+      }
+
+      function onTouchEnd(e) {
+        if (!touchClone) return;
+        const touch = e.changedTouches[0];
+        touchClone.remove();
+        touchClone = null;
+
+        const el = document.elementFromPoint(touch.clientX, touch.clientY);
+        if (el) {
+          const zone = el.closest('.drop-zone');
+          if (zone && draggedCard) {
+            zone.appendChild(draggedCard);
+          }
+        }
+        if (draggedCard) draggedCard.classList.remove('dragging');
+        draggedCard = null;
+        touchOriginZone = null;
+        clearHighlights();
+        updateCounts();
+      }
+
+      // ── Helpers ──
+      function clearHighlights() {
+        document.querySelectorAll('.drag-over').forEach(z => z.classList.remove('drag-over'));
+      }
+
+      function updateCounts() {
+        document.querySelectorAll('.column').forEach(col => {
+          const count = col.querySelector('.drop-zone').children.length;
+          col.querySelector('.badge').textContent = count;
+        });
+      }
+
+      // ── Group management ──
+      function addGroup(name) {
+        name = name || document.getElementById('group-name-input').value.trim();
+        if (!name) return;
+        document.getElementById('group-name-input').value = '';
+
+        const col = document.createElement('div');
+        col.className = 'column';
+
+        const header = document.createElement('div');
+        header.className = 'column-header';
+        header.innerHTML = `<span>${escHtml(name)} <span class="badge">0</span></span>
+          <button class="remove-col" title="Remove group" onclick="removeGroup(this)">&times;</button>`;
+
+        const zone = document.createElement('div');
+        zone.className = 'drop-zone';
+        zone.dataset.group = name;
+
+        col.appendChild(header);
+        col.appendChild(zone);
+        document.getElementById('board').appendChild(col);
+      }
+
+      function removeGroup(btn) {
+        const col = btn.closest('.column');
+        const uncatZone = document.querySelector('#uncategorized .drop-zone');
+        // Move cards back to uncategorized
+        col.querySelectorAll('.card').forEach(card => uncatZone.appendChild(card));
+        col.remove();
+        updateCounts();
+      }
+
+      function resetAll() {
+        const uncatZone = document.querySelector('#uncategorized .drop-zone');
+        document.querySelectorAll('.column:not(#uncategorized) .card').forEach(card => {
+          uncatZone.appendChild(card);
+        });
+        updateCounts();
+      }
+
+      function exportResults() {
+        const results = {};
+        document.querySelectorAll('.column').forEach(col => {
+          const groupName = col.querySelector('.drop-zone').dataset.group || 'uncategorized';
+          const names = [...col.querySelectorAll('.card')].map(c => c.textContent);
+          if (names.length) results[groupName] = names;
+        });
+        const text = Object.entries(results)
+          .map(([group, names]) => `${group}:\n  ${names.join('\n  ')}`)
+          .join('\n\n');
+        const blob = new Blob([text], { type: 'text/plain' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'categorized.txt';
+        a.click();
+      }
+
+      function escHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+      }
+
+      function addNames() {
+        const input = document.getElementById('names-input');
+        const raw = input.value.trim();
+        if (!raw) return;
+        const zone = document.querySelector('#uncategorized .drop-zone');
+        raw.split(',')
+          .map(n => n.trim())
+          .filter(n => n.length > 0)
+          .forEach(name => zone.appendChild(createCard(name)));
+        input.value = '';
+        updateCounts();
+      }
+
+      // Allow adding with Enter key
+      document.getElementById('names-input').addEventListener('keydown', e => {
+        if (e.key === 'Enter') addNames();
+      });
+      document.getElementById('group-name-input').addEventListener('keydown', e => {
+        if (e.key === 'Enter') addGroup();
+      });
+
+      init();
+    </script>
+  </body>
+</html>
