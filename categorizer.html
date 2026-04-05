@@ -289,7 +289,10 @@
 
       // ── Multi-select ──
       let touchStartTime = 0;
-      let touchMoved = false;
+      let touchStartX = 0;
+      let touchStartY = 0;
+      let touchIsDragging = false;
+      const TAP_THRESHOLD = 10; // px of movement allowed for a tap
 
       function onCardClick(e) {
         // Ignore if this was a drag
@@ -431,9 +434,19 @@
 
       function onTouchStart(e) {
         touchStartTime = Date.now();
-        touchMoved = false;
-        draggedCard = e.target;
+        touchIsDragging = false;
+        const touch = e.touches[0];
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+        draggedCard = e.target.closest('.card');
+        if (!draggedCard) return;
         touchOriginZone = draggedCard.parentElement;
+        e.preventDefault();
+      }
+
+      function startTouchDrag(clientX, clientY) {
+        if (touchIsDragging || !draggedCard) return;
+        touchIsDragging = true;
         draggedCard.classList.add('dragging');
 
         touchClone = draggedCard.cloneNode(true);
@@ -444,16 +457,22 @@
         touchClone.style.width = draggedCard.offsetWidth + 'px';
         document.body.appendChild(touchClone);
 
-        const touch = e.touches[0];
-        touchClone.style.left = touch.clientX - touchClone.offsetWidth / 2 + 'px';
-        touchClone.style.top = touch.clientY - touchClone.offsetHeight / 2 + 'px';
-        e.preventDefault();
+        touchClone.style.left = clientX - touchClone.offsetWidth / 2 + 'px';
+        touchClone.style.top = clientY - touchClone.offsetHeight / 2 + 'px';
       }
 
       function onTouchMove(e) {
-        touchMoved = true;
-        if (!touchClone) return;
+        if (!draggedCard) return;
         const touch = e.touches[0];
+        const dx = touch.clientX - touchStartX;
+        const dy = touch.clientY - touchStartY;
+
+        // Only start dragging after moving past threshold
+        if (!touchIsDragging) {
+          if (Math.abs(dx) < TAP_THRESHOLD && Math.abs(dy) < TAP_THRESHOLD) return;
+          startTouchDrag(touch.clientX, touch.clientY);
+        }
+
         touchClone.style.left = touch.clientX - touchClone.offsetWidth / 2 + 'px';
         touchClone.style.top = touch.clientY - touchClone.offsetHeight / 2 + 'px';
 
@@ -470,30 +489,27 @@
 
       function onTouchEnd(e) {
         stopAutoScroll();
-        if (!touchClone) return;
+        if (!draggedCard) return;
         const touch = e.changedTouches[0];
-        touchClone.remove();
-        touchClone = null;
 
-        const elapsed = Date.now() - touchStartTime;
-
-        // Short tap without movement = toggle selection
-        if (!touchMoved && elapsed < 300) {
-          if (draggedCard) {
-            draggedCard.classList.remove('dragging');
-            if (draggedCard.classList.contains('selected')) {
-              draggedCard.classList.remove('selected');
-              selectedCards.delete(draggedCard);
-            } else {
-              draggedCard.classList.add('selected');
-              selectedCards.add(draggedCard);
-            }
-            updateSelectionBar();
+        // Tap (no drag started) = toggle selection
+        if (!touchIsDragging) {
+          if (draggedCard.classList.contains('selected')) {
+            draggedCard.classList.remove('selected');
+            selectedCards.delete(draggedCard);
+          } else {
+            draggedCard.classList.add('selected');
+            selectedCards.add(draggedCard);
           }
+          updateSelectionBar();
           draggedCard = null;
           touchOriginZone = null;
-          clearHighlights();
           return;
+        }
+
+        if (touchClone) {
+          touchClone.remove();
+          touchClone = null;
         }
 
         const el = document.elementFromPoint(touch.clientX, touch.clientY);
