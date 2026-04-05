@@ -141,6 +141,10 @@
     </nav>
 
     <div class="controls">
+      <input type="text" id="names-input" placeholder="Enter names, comma separated…" style="flex: 1; min-width: 250px;" />
+      <button onclick="addNames()">+ Add Names</button>
+    </div>
+    <div class="controls">
       <input type="text" id="group-name-input" placeholder="New group name…" />
       <button onclick="addGroup()">+ Add Group</button>
       <button onclick="resetAll()">Reset</button>
@@ -352,7 +356,23 @@
         return d.innerHTML;
       }
 
-      // Allow adding group with Enter key
+      function addNames() {
+        const input = document.getElementById('names-input');
+        const raw = input.value.trim();
+        if (!raw) return;
+        const zone = document.querySelector('#uncategorized .drop-zone');
+        raw.split(',')
+          .map(n => n.trim())
+          .filter(n => n.length > 0)
+          .forEach(name => zone.appendChild(createCard(name)));
+        input.value = '';
+        updateCounts();
+      }
+
+      // Allow adding with Enter key
+      document.getElementById('names-input').addEventListener('keydown', e => {
+        if (e.key === 'Enter') addNames();
+      });
       document.getElementById('group-name-input').addEventListener('keydown', e => {
         if (e.key === 'Enter') addGroup();
       });
