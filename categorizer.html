@@ -32,7 +32,7 @@
         flex-wrap: wrap;
         margin-bottom: 20px;
       }
-      .controls button, .controls input {
+      .controls button, .controls input, .controls select {
         padding: 8px 14px;
         border: 1px solid #ccc;
         border-radius: 6px;
@@ -74,6 +74,28 @@
         border-bottom: 2px solid #e8e8e8;
         background: #fafafa;
         border-radius: 10px 10px 0 0;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .column-header .header-left {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .column-header .collapse-icon {
+        font-size: 12px;
+        transition: transform 0.2s;
+      }
+      .column.collapsed .collapse-icon {
+        transform: rotate(-90deg);
+      }
+
+      .column-header .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 4px;
       }
 
       .column-header .remove-col {
@@ -93,6 +115,17 @@
         flex: 1;
       }
 
+      .column.collapsed .drop-zone {
+        display: none;
+      }
+      .column.collapsed {
+        min-width: 180px;
+      }
+      .column.collapsed .column-header {
+        border-bottom: none;
+        border-radius: 10px;
+      }
+
       .drop-zone.drag-over {
         background: #e8f0fe;
         border-radius: 0 0 10px 10px;
@@ -106,15 +139,22 @@
         margin-bottom: 8px;
         cursor: grab;
         font-size: 14px;
-        transition: box-shadow 0.15s, opacity 0.15s;
+        transition: box-shadow 0.15s, opacity 0.15s, border-color 0.15s;
         user-select: none;
       }
       .card:active { cursor: grabbing; }
       .card.dragging { opacity: 0.4; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
 
+      .card.selected {
+        border-color: #4a6fa5;
+        background: #e8f0fe;
+        box-shadow: 0 0 0 2px rgba(74,111,165,0.3);
+      }
+
       #uncategorized { min-width: 260px; max-width: 400px; }
       #uncategorized .column-header { background: #4a6fa5; color: #fff; }
       #uncategorized .column-header .remove-col { display: none; }
+      #uncategorized .column-header .collapse-icon { color: rgba(255,255,255,0.7); }
 
       .badge {
         background: rgba(255,255,255,0.3);
@@ -125,6 +165,48 @@
       }
       .column:not(#uncategorized) .badge {
         background: #e0e0e0;
+      }
+
+      .selection-bar {
+        display: none;
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #333;
+        color: #fff;
+        padding: 10px 18px;
+        border-radius: 10px;
+        font-size: 14px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+        z-index: 1000;
+        align-items: center;
+        gap: 10px;
+      }
+      .selection-bar.visible { display: flex; }
+      .selection-bar select {
+        padding: 6px 10px;
+        border-radius: 6px;
+        border: none;
+        font-size: 14px;
+      }
+      .selection-bar button {
+        padding: 6px 14px;
+        border-radius: 6px;
+        border: none;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      .selection-bar .move-btn { background: #4a6fa5; color: #fff; }
+      .selection-bar .move-btn:hover { background: #3b5d8a; }
+      .selection-bar .clear-btn { background: #666; color: #fff; }
+      .selection-bar .clear-btn:hover { background: #555; }
+
+      .version {
+        text-align: center;
+        margin-top: 30px;
+        font-size: 11px;
+        color: #999;
       }
 
       @media (max-width: 600px) {
@@ -153,22 +235,32 @@
 
     <div class="board" id="board">
       <div class="column" id="uncategorized">
-        <div class="column-header">
-          Uncategorized <span class="badge" id="uncategorized-count">0</span>
+        <div class="column-header" onclick="toggleCollapse(this)">
+          <span class="header-left">
+            <span class="collapse-icon">&#9660;</span>
+            Uncategorized <span class="badge" id="uncategorized-count">0</span>
+          </span>
         </div>
         <div class="drop-zone" data-group="uncategorized"></div>
       </div>
     </div>
 
+    <div class="selection-bar" id="selection-bar">
+      <span id="selection-count">0 selected</span>
+      <select id="move-target"></select>
+      <button class="move-btn" onclick="moveSelected()">Move</button>
+      <button class="clear-btn" onclick="clearSelection()">Clear</button>
+    </div>
+
+    <div class="version">version aa19dfb</div>
+
     <script>
       // ── Name list (edit this array to set the names) ──
-      const NAMES = [
-        // Add names here, e.g.:
-        // "Alice", "Bob", "Charlie"
-      ];
+      const NAMES = [];
 
       // ── State ──
       let draggedCard = null;
+      const selectedCards = new Set();
 
       // ── Initialise ──
       function init() {
@@ -187,11 +279,85 @@
         card.draggable = true;
         card.addEventListener('dragstart', onDragStart);
         card.addEventListener('dragend', onDragEnd);
+        card.addEventListener('click', onCardClick);
         // Touch support
         card.addEventListener('touchstart', onTouchStart, { passive: false });
         card.addEventListener('touchmove', onTouchMove, { passive: false });
         card.addEventListener('touchend', onTouchEnd);
         return card;
+      }
+
+      // ── Multi-select ──
+      let touchStartTime = 0;
+      let touchMoved = false;
+
+      function onCardClick(e) {
+        // Ignore if this was a drag
+        if (e.detail === 0) return;
+        const card = e.currentTarget;
+        if (card.classList.contains('selected')) {
+          card.classList.remove('selected');
+          selectedCards.delete(card);
+        } else {
+          card.classList.add('selected');
+          selectedCards.add(card);
+        }
+        updateSelectionBar();
+      }
+
+      function updateSelectionBar() {
+        const bar = document.getElementById('selection-bar');
+        const count = selectedCards.size;
+        if (count === 0) {
+          bar.classList.remove('visible');
+          return;
+        }
+        bar.classList.add('visible');
+        document.getElementById('selection-count').textContent = count + ' selected';
+
+        // Populate move target dropdown
+        const select = document.getElementById('move-target');
+        select.innerHTML = '';
+        document.querySelectorAll('.column').forEach(col => {
+          const zone = col.querySelector('.drop-zone');
+          const name = zone.dataset.group || 'uncategorized';
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          select.appendChild(opt);
+        });
+      }
+
+      function moveSelected() {
+        const targetName = document.getElementById('move-target').value;
+        const targetZone = document.querySelector(`.drop-zone[data-group="${targetName}"]`);
+        if (!targetZone) return;
+
+        // Expand target column if collapsed
+        const targetCol = targetZone.closest('.column');
+        if (targetCol.classList.contains('collapsed')) {
+          targetCol.classList.remove('collapsed');
+        }
+
+        selectedCards.forEach(card => {
+          card.classList.remove('selected');
+          targetZone.appendChild(card);
+        });
+        selectedCards.clear();
+        updateSelectionBar();
+        updateCounts();
+      }
+
+      function clearSelection() {
+        selectedCards.forEach(card => card.classList.remove('selected'));
+        selectedCards.clear();
+        updateSelectionBar();
+      }
+
+      // ── Collapse / Expand ──
+      function toggleCollapse(headerEl) {
+        const col = headerEl.closest('.column');
+        col.classList.toggle('collapsed');
       }
 
       // ── Drag & drop (mouse) ──
@@ -219,6 +385,11 @@
         e.preventDefault();
         const zone = e.target.closest('.drop-zone');
         if (zone && draggedCard) {
+          // Expand if collapsed
+          const col = zone.closest('.column');
+          if (col.classList.contains('collapsed')) {
+            col.classList.remove('collapsed');
+          }
           zone.appendChild(draggedCard);
         }
         clearHighlights();
@@ -226,8 +397,8 @@
       });
 
       // ── Auto-scroll while dragging ──
-      const SCROLL_EDGE = 60; // px from edge to trigger scroll
-      const SCROLL_SPEED = 8; // px per frame
+      const SCROLL_EDGE = 60;
+      const SCROLL_SPEED = 8;
       let scrollRAF = null;
 
       function startAutoScroll(clientX, clientY) {
@@ -259,6 +430,8 @@
       let touchOriginZone = null;
 
       function onTouchStart(e) {
+        touchStartTime = Date.now();
+        touchMoved = false;
         draggedCard = e.target;
         touchOriginZone = draggedCard.parentElement;
         draggedCard.classList.add('dragging');
@@ -278,6 +451,7 @@
       }
 
       function onTouchMove(e) {
+        touchMoved = true;
         if (!touchClone) return;
         const touch = e.touches[0];
         touchClone.style.left = touch.clientX - touchClone.offsetWidth / 2 + 'px';
@@ -301,10 +475,35 @@
         touchClone.remove();
         touchClone = null;
 
+        const elapsed = Date.now() - touchStartTime;
+
+        // Short tap without movement = toggle selection
+        if (!touchMoved && elapsed < 300) {
+          if (draggedCard) {
+            draggedCard.classList.remove('dragging');
+            if (draggedCard.classList.contains('selected')) {
+              draggedCard.classList.remove('selected');
+              selectedCards.delete(draggedCard);
+            } else {
+              draggedCard.classList.add('selected');
+              selectedCards.add(draggedCard);
+            }
+            updateSelectionBar();
+          }
+          draggedCard = null;
+          touchOriginZone = null;
+          clearHighlights();
+          return;
+        }
+
         const el = document.elementFromPoint(touch.clientX, touch.clientY);
         if (el) {
           const zone = el.closest('.drop-zone');
           if (zone && draggedCard) {
+            const col = zone.closest('.column');
+            if (col.classList.contains('collapsed')) {
+              col.classList.remove('collapsed');
+            }
             zone.appendChild(draggedCard);
           }
         }
@@ -338,8 +537,14 @@
 
         const header = document.createElement('div');
         header.className = 'column-header';
-        header.innerHTML = `<span>${escHtml(name)} <span class="badge">0</span></span>
-          <button class="remove-col" title="Remove group" onclick="removeGroup(this)">&times;</button>`;
+        header.setAttribute('onclick', 'toggleCollapse(this)');
+        header.innerHTML = `<span class="header-left">
+            <span class="collapse-icon">&#9660;</span>
+            ${escHtml(name)} <span class="badge">0</span>
+          </span>
+          <span class="header-actions">
+            <button class="remove-col" title="Remove group" onclick="event.stopPropagation(); removeGroup(this)">&times;</button>
+          </span>`;
 
         const zone = document.createElement('div');
         zone.className = 'drop-zone';
@@ -353,7 +558,6 @@
       function removeGroup(btn) {
         const col = btn.closest('.column');
         const uncatZone = document.querySelector('#uncategorized .drop-zone');
-        // Move cards back to uncategorized
         col.querySelectorAll('.card').forEach(card => uncatZone.appendChild(card));
         col.remove();
         updateCounts();
@@ -364,6 +568,7 @@
         document.querySelectorAll('.column:not(#uncategorized) .card').forEach(card => {
           uncatZone.appendChild(card);
         });
+        clearSelection();
         updateCounts();
       }
 
