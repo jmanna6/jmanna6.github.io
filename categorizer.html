@@ -201,6 +201,7 @@
         e.dataTransfer.effectAllowed = 'move';
       }
       function onDragEnd(e) {
+        stopAutoScroll();
         e.target.classList.remove('dragging');
         draggedCard = null;
         clearHighlights();
@@ -209,6 +210,7 @@
 
       document.addEventListener('dragover', e => {
         e.preventDefault();
+        startAutoScroll(e.clientX, e.clientY);
         const zone = e.target.closest('.drop-zone');
         clearHighlights();
         if (zone) zone.classList.add('drag-over');
@@ -222,6 +224,35 @@
         clearHighlights();
         updateCounts();
       });
+
+      // ── Auto-scroll while dragging ──
+      const SCROLL_EDGE = 60; // px from edge to trigger scroll
+      const SCROLL_SPEED = 8; // px per frame
+      let scrollRAF = null;
+
+      function startAutoScroll(clientX, clientY) {
+        cancelAnimationFrame(scrollRAF);
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        let dx = 0, dy = 0;
+
+        if (clientX < SCROLL_EDGE) dx = -SCROLL_SPEED;
+        else if (clientX > vw - SCROLL_EDGE) dx = SCROLL_SPEED;
+        if (clientY < SCROLL_EDGE) dy = -SCROLL_SPEED;
+        else if (clientY > vh - SCROLL_EDGE) dy = SCROLL_SPEED;
+
+        if (dx === 0 && dy === 0) return;
+
+        (function step() {
+          window.scrollBy(dx, dy);
+          scrollRAF = requestAnimationFrame(step);
+        })();
+      }
+
+      function stopAutoScroll() {
+        cancelAnimationFrame(scrollRAF);
+        scrollRAF = null;
+      }
 
       // ── Touch support ──
       let touchClone = null;
@@ -252,6 +283,8 @@
         touchClone.style.left = touch.clientX - touchClone.offsetWidth / 2 + 'px';
         touchClone.style.top = touch.clientY - touchClone.offsetHeight / 2 + 'px';
 
+        startAutoScroll(touch.clientX, touch.clientY);
+
         clearHighlights();
         const el = document.elementFromPoint(touch.clientX, touch.clientY);
         if (el) {
@@ -262,6 +295,7 @@
       }
 
       function onTouchEnd(e) {
+        stopAutoScroll();
         if (!touchClone) return;
         const touch = e.changedTouches[0];
         touchClone.remove();
